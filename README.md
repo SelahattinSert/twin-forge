@@ -21,6 +21,16 @@ python -m pip install --upgrade pip
 python -m pip install -e '.[mapanything]'
 ```
 
+On the verified Linux RTX 3060 Laptop GPU environment, PyTorch `2.13.0+cu130` and torchvision `0.28.0+cu130` worked with the installed NVIDIA driver. To reproduce that CUDA setup, install them before the MapAnything extra:
+
+```bash
+python -m pip install torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cu130
+python -m pip install -e '.[mapanything]'
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no CUDA device')"
+```
+
+This is a tested configuration, not a promise that every driver, OS, or GPU supports it. Confirm `torch.cuda.is_available()` in the same environment used to run TwinForge; a CPU-only PyTorch build cannot use the GPU even when NVIDIA hardware is installed.
+
 For development and unit tests:
 
 ```bash
@@ -91,7 +101,8 @@ Confidence maps are retained on exported points when MapAnything supplies them, 
 - Candidate source frame indices are estimates for variable-frame-rate video.
 - No mesh fusion, texturing, or scene completion is performed.
 - Large frame sets can exceed available memory. Reduce `--max-keyframes` and rerun; the exact requested and used keyframe counts are recorded.
-- CPU inference can be very slow. On the supplied 33-second `room2.mp4`, 32 selected views took about 14 minutes 48 seconds on the CPU-only test host; other hardware, images, and model versions will differ.
+- On the tested 6 GiB RTX 3060 Laptop GPU, `room2.mp4` completed with 4 selected views, but 8 views ran out of CUDA memory. Four widely spaced views are not enough to establish a coherent whole-room digital twin; this result validates the GPU execution path, not geometric quality or metric accuracy. Peak memory depends on the video and environment.
+- CPU inference can be very slow. On the supplied 33-second `room2.mp4`, 32 selected views took about 14 minutes 48 seconds in a CPU-only Python environment; other hardware, images, and model versions will differ.
 - Source videos in the current workspace were coded at 1024×576 (displayed as 576×1024 after rotation metadata), despite being described as 1080p. Always use `twinforge inspect` to verify the file itself.
 
 For a manual smoke test, place a small video at `tests/data/sample.mp4` (not committed) and run the commands above.
