@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "twinforge"
+version = "0.1.0"
+description = "Confidence-aware spatial reconstruction from ordinary RGB video"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12,<3.13"
+authors = [{ name = "TwinForge contributors" }]
+dependencies = [
+  "numpy>=1.26,<3",
+  "opencv-python-headless>=4.10,<5",
+]
+
+[project.optional-dependencies]
+mapanything = ["mapanything @ git+https://github.com/facebookresearch/map-anything.git@9d1db2dd728bd8a10e74b15d2eb646e1bf933791"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+twinforge = "twinforge.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
