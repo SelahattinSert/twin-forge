@@ -10,7 +10,6 @@ Phase 0 tests whether image-only MapAnything inference can produce coherent, app
 
 Phase 1 adds an offline saved-scene viewer, exact endpoint measurements, bounded
 multi-view consistency evidence, and one-control uniform calibrated exports.
-See [usage](docs/phase1-usage.md) and [delivery limits](docs/phase1-delivery.md).
 Physical-reference evaluation occurred and exposed remaining shape errors;
 calibration establishes scale but does not establish whole-room accuracy.
 
@@ -18,10 +17,13 @@ Phase 2 adds a persistent local scene library, browser video upload and review,
 supervised processing with cancellation/recovery, source-photo observations,
 immutable saved versions, and restorable downloads. Start it once with
 `twinforge app --library output/phase2/library`, then use the browser for scene
-tasks. See the [Phase 2 guide](docs/phase2-usage.md) and
-[acceptance status](docs/phase2-delivery.md). A real 32-view CPU application run
+tasks. A real 32-view CPU application run
 completed and its scene was displayed in the browser. Human acceptance remains
 pending; completed product code does not establish geometric accuracy.
+
+Detailed development plans, usage guides, and acceptance reports are maintained
+locally under `docs/`. That directory is intentionally excluded from version
+control and is not included in this repository's published tree.
 
 ## Requirements and installation
 
@@ -61,7 +63,7 @@ loads weights or performs inference. Synthetic coordinate/provenance tests still
 run without that backend. Readiness tests simulate decoder availability rather
 than depending on the developer machine's setup.
 
-MapAnything weights are fetched from Hugging Face on first use unless cached. TwinForge defaults to `facebook/map-anything-apache` at immutable revision `00f9c245bbcb60522d1ed7f9e9d88462c6e3f38a`, whose checkpoint is published under Apache 2.0. The source-code license and model-weight license are separate; see [dependency and checkpoint licenses](docs/dependencies.md).
+MapAnything weights are fetched from Hugging Face on first use unless cached. TwinForge defaults to `facebook/map-anything-apache` at immutable revision `00f9c245bbcb60522d1ed7f9e9d88462c6e3f38a`, whose checkpoint is published under Apache 2.0. The source-code license and model-weight license are separate. The optional backend is pinned to MapAnything source commit `9d1db2dd728bd8a10e74b15d2eb646e1bf933791` (v1.1.3, Apache-2.0). Do not confuse this checkpoint with the noncommercial `facebook/map-anything` variant.
 
 TwinForge's source code is licensed under [Apache-2.0](LICENSE). Model weights and third-party dependencies retain their own licenses; check the exact checkpoint before substituting it.
 

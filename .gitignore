@@ -26,6 +26,9 @@ dist/
 .agents/
 .codex/
 
+# Local development plans, reports, and documentation
+/docs/
+
 # Local reconstruction data and model weights (may contain private spaces)
 output/
 .model-cache/
