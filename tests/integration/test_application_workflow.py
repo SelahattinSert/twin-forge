@@ -8,7 +8,12 @@ from contextlib import contextmanager
 from dataclasses import replace
 
 from tests.integration.test_application_exports import export, reopen
-from tests.integration.test_application_ingest import movie, request, transfer  # noqa: F401
+from tests.integration.test_application_ingest import (  # noqa: F401
+    movie,
+    request,
+    transfer,
+    video_tools,
+)
 from tests.integration.test_application_jobs import application, queue  # noqa: F401
 from tests.integration.test_application_scenes import prefix
 from tests.integration.test_application_versions import calibrate

@@ -63,9 +63,13 @@ def transfer(server, data, name="video.mp4"):
 
 
 @pytest.fixture
-def movie(tmp_path):
-    if not shutil.which("ffmpeg"):
-        pytest.skip("FFmpeg required")
+def video_tools():
+    if not all(shutil.which(name) for name in ("ffmpeg", "ffprobe")):
+        pytest.skip("FFmpeg and ffprobe required")
+
+
+@pytest.fixture
+def movie(tmp_path, video_tools):
     path = tmp_path / "fixture.mp4"
     subprocess.run(
         [
@@ -142,7 +146,7 @@ def test_valid_unicode_duplicates_durable_without_open_scene(application, movie)
         )
 
 
-def test_invalid_content_is_actionable_and_private(application):
+def test_invalid_content_is_actionable_and_private(application, video_tools):
     base, _ = transfer(application, b"private /some/path is not video")
     status, result = request(application, base + "/complete", "POST", {"name": "Invalid"})
     assert status == 422 and result["error"]["code"] == "invalid_video"
@@ -341,8 +345,8 @@ def test_drip_transfer_deadline_bounds_server_shutdown(application):
         closer.join(timeout=2)
 
 
-def test_missing_decoder_is_actionable_and_does_not_block_library(application, movie, monkeypatch):
-    base, _ = transfer(application, movie.read_bytes())
+def test_missing_decoder_is_actionable_and_does_not_block_library(application, monkeypatch):
+    base, _ = transfer(application, b"inspection cannot run without decoder tools")
     monkeypatch.setattr("twinforge.application.inspection.shutil.which", lambda _: None)
     status, result = request(application, base + "/complete", "POST", {"name": "Missing decoder"})
     assert status == 422 and result["error"]["code"] == "missing_decoder"
@@ -412,7 +416,9 @@ def test_hlg_portrait_preview_preserves_color_policy_and_source(application, tmp
     assert inspection["decode_ready"]
 
 
-def test_disguised_playlist_is_rejected_before_opening_external_files(application, tmp_path):
+def test_disguised_playlist_is_rejected_before_opening_external_files(
+    application, tmp_path, video_tools
+):
     outside = tmp_path / "private.txt"
     outside.write_text("Private source must not be inspected")
     playlist = f"#EXTM3U\n#EXTINF:1,\n{outside}\n".encode()

@@ -190,7 +190,10 @@ def test_upload_listing_never_returns_invalid_directory_cursor(uploads):
     assert [item["upload_id"] for item in page["uploads"]] == [receipt["upload_id"]]
 
 
-def test_readiness_checks_caches_without_importing_heavy_packages(tmp_path, monkeypatch):
+@pytest.mark.parametrize("decoder_available", [True, False])
+def test_readiness_checks_caches_without_importing_heavy_packages(
+    tmp_path, monkeypatch, decoder_available
+):
     from twinforge.application.readiness import check_readiness
 
     config = ApplicationConfig(
@@ -201,6 +204,10 @@ def test_readiness_checks_caches_without_importing_heavy_packages(tmp_path, monk
     )
     config.library.mkdir()
     monkeypatch.setattr("twinforge.application.readiness.package_available", lambda _: True)
+    monkeypatch.setattr(
+        "twinforge.application.readiness.shutil.which",
+        lambda name: f"/test/bin/{name}" if decoder_available else None,
+    )
     value = check_readiness(config, {"cpu": True, "cuda": False})
     assert value["viewing_available"] and not value["processing_ready"]
     assert value["checkpoint"]["state"] == "missing"
@@ -221,7 +228,11 @@ def test_readiness_checks_caches_without_importing_heavy_packages(tmp_path, monk
     assert value["profiles"]["standard"]["device"] == "cpu"
     assert value["profiles"]["standard"]["maximum_keyframes"] == 32
     assert value["profiles"]["standard"]["maximum_oom_retries"] == 0
-    assert value["processing_ready"]
+    assert value["processing_ready"] is decoder_available
+    assert value["decoder"] == {"ffmpeg": decoder_available, "ffprobe": decoder_available}
+    assert [reason["code"] for reason in value["reasons"]] == (
+        [] if decoder_available else ["missing_decoder"]
+    )
 
 
 def test_explicit_cache_environment_and_offline_worker_contract(tmp_path, monkeypatch):

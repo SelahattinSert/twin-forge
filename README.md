@@ -53,6 +53,14 @@ python -m pip install -e '.[dev]'
 pytest
 ```
 
+The lightweight suite does not require PyTorch, MapAnything, Pillow, or model
+weights. Install FFmpeg **and ffprobe** to run the real video-ingestion checks;
+GitHub Actions installs both explicitly. The official MapAnything preprocessing
+integration check runs only when the optional backend is installed and never
+loads weights or performs inference. Synthetic coordinate/provenance tests still
+run without that backend. Readiness tests simulate decoder availability rather
+than depending on the developer machine's setup.
+
 MapAnything weights are fetched from Hugging Face on first use unless cached. TwinForge defaults to `facebook/map-anything-apache` at immutable revision `00f9c245bbcb60522d1ed7f9e9d88462c6e3f38a`, whose checkpoint is published under Apache 2.0. The source-code license and model-weight license are separate; see [dependency and checkpoint licenses](docs/dependencies.md).
 
 TwinForge's source code is licensed under [Apache-2.0](LICENSE). Model weights and third-party dependencies retain their own licenses; check the exact checkpoint before substituting it.

@@ -70,26 +70,6 @@ def test_historical_derivation_requires_complete_finite_contiguous_grids():
             module.derive_full_grid_indices(bad_scene, 3, 2, point_stride=stride, ordering=order)
 
 
-def test_official_preprocessing_capture_records_actual_resize_and_crop(tmp_path):
-    from PIL import Image
-
-    from twinforge.backends import mapanything
-
-    function = getattr(mapanything, "load_images_with_provenance", None)
-    assert callable(function), "official preprocessing capture missing"
-    path = tmp_path / "source.png"
-    Image.new("RGB", (464, 832), (70, 80, 90)).save(path)
-    views, mappings = function([str(path)], [17])
-    mapping = provenance().PixelTransform(
-        **{**mappings[0], "crop_bbox": tuple(mappings[0]["crop_bbox"])}
-    )
-    assert views[0]["img"].shape[-2:] == (518, 294)
-    assert (mapping.resized_width, mapping.resized_height) == (294, 527)
-    assert mapping.crop_bbox == (0, 4, 294, 522)
-    assert mapping.official_intrinsics_scale == pytest.approx(294 / 464 + 1e-8)
-    assert mapping.origin == "native"
-
-
 def test_workspace_derived_provenance_is_bound_to_exact_scene_and_verified_grid(tmp_path):
     module = provenance()
     function = getattr(module, "attach_verified_provenance", None)
