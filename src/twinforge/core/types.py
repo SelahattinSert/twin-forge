@@ -22,6 +22,11 @@ class VideoMetadata:
     frame_count: int | None
     display_width: int
     display_height: int
+    color_primaries: str | None = None
+    color_transfer: str | None = None
+    color_space: str | None = None
+    color_range: str | None = None
+    pixel_format: str | None = None
 
 
 @dataclass
@@ -37,6 +42,8 @@ class FrameObservation:
     novelty: float = 0.0
     feature_overlap: float | None = None
     rejection_reason: str | None = None
+    analysis_width: int | None = None
+    analysis_height: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -85,12 +92,13 @@ class PointCloud:
     confidence: np.ndarray | None = None
     source_frame_id: np.ndarray | None = None
     valid_mask: np.ndarray | None = None
+    source_pixel_index: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         if self.xyz.ndim != 2 or self.xyz.shape[1] != 3:
             raise ValueError("xyz must have shape (N, 3)")
         point_count = self.xyz.shape[0]
-        for name in ("rgb", "confidence", "source_frame_id", "valid_mask"):
+        for name in ("rgb", "confidence", "source_frame_id", "valid_mask", "source_pixel_index"):
             value = getattr(self, name)
             if value is not None and value.shape[0] != point_count:
                 raise ValueError(f"{name} must contain one value per point")
@@ -126,6 +134,7 @@ class ReconstructionResult:
     checkpoint: str | None
     depth_maps: list[DepthMap] = field(default_factory=list)
     backend_metadata: dict[str, Any] = field(default_factory=dict)
+    pixel_transforms: list[dict[str, Any]] = field(default_factory=list)
 
 
 def json_safe(value: Any) -> Any:

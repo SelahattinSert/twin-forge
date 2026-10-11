@@ -2,26 +2,16 @@
 
 from __future__ import annotations
 
+import gc
 import importlib.metadata
 import logging
 from typing import Any
 
-import cv2
 import numpy as np
 
-from twinforge.backends.base import ReconstructionBackend, ReconstructionContext
-from twinforge.core.coordinates import (
-    convert_points_opencv_world_to_twinforge,
-    convert_pose_opencv_world_to_twinforge,
-)
-from twinforge.core.types import (
-    Camera,
-    ConfidenceSummary,
-    DepthMap,
-    PointCloud,
-    ReconstructionResult,
-    ScaleEstimate,
-)
+from twinforge.backends.base import DeviceMemory, ReconstructionBackend, ReconstructionContext
+from twinforge.backends.mapanything_outputs import normalize_predictions
+from twinforge.core.types import ReconstructionResult
 from twinforge.exceptions import (
     BackendUnavailableError,
     ModelLoadError,
@@ -30,6 +20,63 @@ from twinforge.exceptions import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def load_images_with_provenance(paths: list[str], frame_ids: list[int]):
+    """Execute official raster helpers and verify against the official loader.
+
+    Record integer raster sizes and crop bounds separately from the scalar used
+    by its intrinsics helper. This repeats preprocessing, never inference, and
+    does not replace any official function or mutate module globals.
+    """
+    from mapanything.utils import cropping, image
+    from PIL import Image, ImageOps
+
+    from twinforge.scene.provenance import PixelTransform
+
+    if len(paths) != len(frame_ids):
+        raise ValueError("Source paths and frame IDs must have identical lengths")
+    views = image.load_images(paths)
+    if len(views) != len(paths):
+        raise ValueError("Official loader omitted source images; provenance order unavailable")
+    records = []
+    for path, frame_id, view in zip(paths, frame_ids, views, strict=True):
+        with Image.open(path) as source:
+            raster = ImageOps.exif_transpose(source).convert("RGB")
+        source_width, source_height = raster.size
+        target_height, target_width = map(int, view["img"].shape[-2:])
+        resized = cropping.rescale_image_and_other_optional_info(
+            raster, np.array([target_width, target_height])
+        )[0]
+        resized_width, resized_height = resized.size
+        left = (resized_width - target_width) // 2
+        top = (resized_height - target_height) // 2
+        bbox = (left, top, left + target_width, top + target_height)
+        cropped = cropping.crop_image_and_other_optional_info(resized, bbox)[0]
+        normalization = image.IMAGE_NORMALIZATION_DICT[view["data_norm_type"][0]]
+        normalize = image.tvf.Compose(
+            [
+                image.tvf.ToTensor(),
+                image.tvf.Normalize(mean=normalization.mean, std=normalization.std),
+            ]
+        )
+        repeated = normalize(cropped)[None]
+        if not np.array_equal(repeated.numpy(), view["img"].numpy()):
+            raise ValueError("Recorded raster operations disagree with official preprocessing")
+        scalar = float(max(target_width / source_width, target_height / source_height) + 1e-8)
+        records.append(
+            PixelTransform(
+                frame_id,
+                source_width,
+                source_height,
+                resized_width,
+                resized_height,
+                bbox,
+                "native",
+                scalar,
+            ).to_dict()
+        )
+    return views, records
 
 
 class MapAnythingBackend(ReconstructionBackend):
@@ -67,16 +114,21 @@ class MapAnythingBackend(ReconstructionBackend):
             raise BackendUnavailableError(
                 f"MapAnything documentation currently supports CPU or CUDA, not {device!r}."
             )
+        self._torch, self.device = torch, device
         try:
             self._model = MapAnything.from_pretrained(
                 self.checkpoint, revision=self.checkpoint_revision
-            ).to(device).eval()
+            )
+            self._model = self._model.to(device).eval()
         except Exception as exc:
+            if _is_oom(exc, torch):
+                raise ModelLoadError(
+                    "MapAnything model weights do not fit on the requested device. "
+                    "Reducing keyframes cannot fix model-load OOM; use more memory or --device cpu."
+                ) from exc
             raise ModelLoadError(
                 f"Could not load MapAnything checkpoint {self.checkpoint!r}: {exc}"
             ) from exc
-        self._torch = torch
-        self.device = device
 
     def prepare(self, context: ReconstructionContext) -> None:
         self._load(context.device)
@@ -85,10 +137,25 @@ class MapAnythingBackend(ReconstructionBackend):
         if self._model is not None:
             del self._model
             self._model = None
+        gc.collect()
         if self._torch is not None and self.device and self.device.startswith("cuda"):
             self._torch.cuda.empty_cache()
         self._torch = None
         self.device = None
+
+    def memory_info(self) -> DeviceMemory:
+        if self._torch is None or not self.device:
+            return DeviceMemory("unknown")
+        if not self.device.startswith("cuda"):
+            return DeviceMemory(self.device)
+        try:
+            free, total = self._torch.cuda.mem_get_info(self.device)
+        except (RuntimeError, ValueError, TypeError):
+            logger.warning(
+                "CUDA memory measurement unavailable; using conservative fallback frame cap"
+            )
+            return DeviceMemory(self.device)
+        return DeviceMemory(self.device, int(free), int(total))
 
     def reconstruct(
         self,
@@ -99,9 +166,12 @@ class MapAnythingBackend(ReconstructionBackend):
             self._load(context.device)
         torch = self._torch
         try:
-            from mapanything.utils.image import load_images
+            views, pixel_transforms = load_images_with_provenance(
+                [frame.image_path for frame in frames], [frame.frame_id for frame in frames]
+            )
+            from mapanything.utils.device import get_amp_dtype
 
-            views = load_images([frame.image_path for frame in frames])
+            effective_amp_dtype = str(get_amp_dtype(self.device, "bf16"))
             memory_preflight = _memory_preflight(views, torch, self.device)
             if memory_preflight["xyz_output_exceeds_free_vram"] is True:
                 logger.warning(
@@ -144,181 +214,30 @@ class MapAnythingBackend(ReconstructionBackend):
             if context.debug:
                 logger.exception("MapAnything inference failed")
             raise ReconstructionFailedError(f"MapAnything inference failed: {exc}") from exc
-        if len(predictions) != len(frames):
-            raise ReconstructionFailedError(
-                f"MapAnything returned {len(predictions)} view outputs for {len(frames)} input frames."
-            )
-        xyz_parts: list[np.ndarray] = []
-        rgb_parts: list[np.ndarray] = []
-        confidence_parts: list[np.ndarray] = []
-        source_parts: list[np.ndarray] = []
-        validity_parts: list[np.ndarray] = []
-        cameras: list[Camera] = []
-        depth_maps: list[DepthMap] = []
-        scale_factors: list[float] = []
-        # Drop each backend tensor bundle as soon as it has been normalized so
-        # multi-view outputs do not all remain resident on the accelerator.
-        for frame in frames:
-            prediction = predictions.pop(0)
-            points = _array(prediction.get("pts3d"))
-            if points is None:
-                raise ReconstructionFailedError(
-                    "MapAnything output did not contain the documented `pts3d` field."
-                )
-            points = _single_batch(points)
-            height, width = points.shape[:2]
-            colors = _array(prediction.get("img_no_norm"))
-            if colors is not None:
-                colors = _single_batch(colors)
-                if colors.shape[:2] != (height, width):
-                    colors = cv2.resize(
-                        colors.astype(np.float32), (width, height), interpolation=cv2.INTER_AREA
-                    )
-                if colors.max(initial=0.0) <= 1.0:
-                    colors = colors * 255.0
-                colors = np.clip(colors, 0, 255).astype(np.uint8)
-            else:
-                image = cv2.imread(frame.image_path, cv2.IMREAD_COLOR)
-                colors = cv2.cvtColor(cv2.resize(image, (width, height)), cv2.COLOR_BGR2RGB)
-            confidence = _array(prediction.get("conf"))
-            if confidence is not None:
-                confidence = np.squeeze(_single_batch(confidence))
-            depth_z = _array(prediction.get("depth_z"))
-            if depth_z is not None:
-                depth_z = np.squeeze(_single_batch(depth_z)).astype(np.float32, copy=False)
-            mask = _array(prediction.get("non_ambiguous_mask"))
-            if mask is None:
-                mask = _array(prediction.get("mask"))
-            if mask is not None:
-                mask = np.squeeze(_single_batch(mask)).astype(bool)
-            else:
-                mask = np.ones((height, width), dtype=bool)
-            if depth_z is not None:
-                if depth_z.shape != (height, width):
-                    depth_z = cv2.resize(
-                        depth_z, (width, height), interpolation=cv2.INTER_NEAREST
-                    )
-                depth_confidence = confidence
-                if depth_confidence is not None and depth_confidence.shape != (height, width):
-                    depth_confidence = cv2.resize(
-                        depth_confidence.astype(np.float32),
-                        (width, height),
-                        interpolation=cv2.INTER_LINEAR,
-                    )
-                depth_maps.append(
-                    DepthMap(
-                        frame_id=frame.frame_id,
-                        timestamp_seconds=frame.timestamp_seconds,
-                        depth_z=depth_z,
-                        confidence=depth_confidence.astype(np.float32, copy=False)
-                        if depth_confidence is not None
-                        else None,
-                        valid_mask=mask & np.isfinite(depth_z),
-                    )
-                )
-            frame_confidence = None
-            if confidence is not None:
-                confidence_valid = mask & np.isfinite(confidence)
-                if confidence_valid.any():
-                    frame_confidence = float(np.mean(confidence[confidence_valid]))
-            sampled = np.zeros((height, width), dtype=bool)
-            sampled[:: self.point_stride, :: self.point_stride] = True
-            finite_points = sampled & np.isfinite(points).all(axis=2)
-            selected_points = points[finite_points].astype(np.float32, copy=False)
-            xyz_parts.append(
-                convert_points_opencv_world_to_twinforge(selected_points).astype(
-                    np.float32, copy=False
-                )
-            )
-            rgb_parts.append(colors[finite_points])
-            source_parts.append(np.full(len(selected_points), frame.frame_id, dtype=np.uint32))
-            validity_parts.append(mask[finite_points])
-            if confidence is not None:
-                confidence_parts.append(confidence[finite_points].astype(np.float32, copy=False))
-            intrinsics = _array(prediction.get("intrinsics"))
-            pose = _array(prediction.get("camera_poses"))
-            camera_matrix = _first_matrix(intrinsics, (3, 3))
-            pose_matrix = _first_matrix(pose, (4, 4))
-            if pose_matrix is not None:
-                pose_matrix = convert_pose_opencv_world_to_twinforge(pose_matrix)
-            cameras.append(
-                Camera(
-                    frame_id=frame.frame_id,
-                    timestamp_seconds=frame.timestamp_seconds,
-                    intrinsics=camera_matrix.tolist() if camera_matrix is not None else None,
-                    camera_to_world=pose_matrix.tolist() if pose_matrix is not None else None,
-                    confidence=frame_confidence,
-                    image_width=width,
-                    image_height=height,
-                )
-            )
-            factor = _scalar(prediction.get("metric_scaling_factor"))
-            if factor is not None:
-                scale_factors.append(factor)
-            del prediction
-        xyz = np.concatenate(xyz_parts, axis=0) if xyz_parts else np.empty((0, 3), dtype=np.float32)
-        rgb = np.concatenate(rgb_parts, axis=0) if rgb_parts else np.empty((0, 3), dtype=np.uint8)
-        confidence_values = np.concatenate(confidence_parts) if confidence_parts else None
-        source_ids = np.concatenate(source_parts) if source_parts else np.empty(0, dtype=np.uint32)
-        validity = np.concatenate(validity_parts) if validity_parts else np.empty(0, dtype=bool)
-        if not len(xyz):
-            raise ReconstructionFailedError(
-                "MapAnything returned no valid 3D points after applying its validity mask."
-            )
-        finite_confidence = (
-            confidence_values[np.isfinite(confidence_values)]
-            if confidence_values is not None
-            else np.empty(0, dtype=np.float32)
-        )
-        if confidence_values is not None:
-            summary = ConfidenceSummary(
-                available=True,
-                mean=float(np.mean(finite_confidence)) if finite_confidence.size else None,
-                median=float(np.median(finite_confidence)) if finite_confidence.size else None,
-                p10=float(np.percentile(finite_confidence, 10)) if finite_confidence.size else None,
-                p90=float(np.percentile(finite_confidence, 90)) if finite_confidence.size else None,
-                valid_point_count=int(finite_confidence.size),
-                source="MapAnything per-pixel `conf` output",
-            )
-        else:
-            summary = ConfidenceSummary(available=False, source=None)
-        if scale_factors:
-            scale = ScaleEstimate(
-                type="estimated_metric",
-                meters_per_unit=1.0,
-                confidence=None,
-                source="MapAnything image-only metric reconstruction",
-                details={"metric_scaling_factor_values": scale_factors},
-            )
-        else:
-            scale = ScaleEstimate(
-                type="relative", meters_per_unit=None, confidence=None, source=None
-            )
         try:
             version = importlib.metadata.version("mapanything")
         except importlib.metadata.PackageNotFoundError:
             version = None
-        return ReconstructionResult(
-            points=PointCloud(
-                xyz=xyz,
-                rgb=rgb,
-                confidence=confidence_values,
-                source_frame_id=source_ids,
-                valid_mask=validity,
-            ),
-            cameras=cameras,
-            scale=scale,
-            confidence=summary,
-            backend="MapAnything",
-            backend_version=version,
+        return normalize_predictions(
+            predictions,
+            frames,
+            point_stride=self.point_stride,
             checkpoint=self.checkpoint,
-            depth_maps=depth_maps,
+            backend_version=version,
+            pixel_transforms=pixel_transforms,
             backend_metadata={
                 "device": self.device,
                 "checkpoint_revision": self.checkpoint_revision,
                 "point_stride": self.point_stride,
                 "source_coordinate_convention": "OpenCV world coordinates; +X right, +Y down, +Z forward",
                 "memory_preflight": memory_preflight,
+                "precision": {
+                    "use_amp": True,
+                    "input_dtype": "float32",
+                    "geometry_export_dtype": "float32",
+                    "requested_amp_dtype": "bf16",
+                    "effective_autocast_dtype": effective_amp_dtype,
+                },
             },
         )
 
@@ -340,15 +259,12 @@ def estimate_minimum_xyz_output_bytes(views: list[dict[str, Any]]) -> int:
     )
 
 
-def _memory_preflight(views: list[dict[str, Any]], torch: Any, device: str | None) -> dict[str, Any]:
+def _memory_preflight(
+    views: list[dict[str, Any]], torch: Any, device: str | None
+) -> dict[str, Any]:
     output_floor = estimate_minimum_xyz_output_bytes(views)
     free_vram = None
-    if (
-        torch is not None
-        and device
-        and device.startswith("cuda")
-        and torch.cuda.is_available()
-    ):
+    if torch is not None and device and device.startswith("cuda") and torch.cuda.is_available():
         try:
             free_vram = int(torch.cuda.mem_get_info(device)[0])
         except (RuntimeError, ValueError, TypeError):
@@ -363,34 +279,6 @@ def _memory_preflight(views: list[dict[str, Any]], torch: Any, device: str | Non
         "scope": "float32 XYZ output only; excludes model weights, activations, other outputs, and allocator overhead",
         "peak_memory_estimate_available": False,
     }
-
-
-def _array(value: Any) -> np.ndarray | None:
-    if value is None:
-        return None
-    if hasattr(value, "detach"):
-        value = value.detach().cpu().numpy()
-    return np.asarray(value)
-
-
-def _single_batch(value: np.ndarray) -> np.ndarray:
-    return value[0] if value.ndim >= 1 and value.shape[0] == 1 else value
-
-
-def _first_matrix(value: np.ndarray | None, shape: tuple[int, int]) -> np.ndarray | None:
-    if value is None:
-        return None
-    while value.ndim > 2 and value.shape[0] == 1:
-        value = value[0]
-    return value if value.shape == shape else None
-
-
-def _scalar(value: Any) -> float | None:
-    array = _array(value)
-    if array is None or not array.size:
-        return None
-    result = float(array.reshape(-1)[0])
-    return result if np.isfinite(result) else None
 
 
 def _is_oom(exc: Exception, torch: Any) -> bool:

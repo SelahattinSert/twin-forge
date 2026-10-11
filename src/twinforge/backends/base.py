@@ -14,6 +14,13 @@ class ReconstructionContext:
     debug: bool = False
 
 
+@dataclass(frozen=True)
+class DeviceMemory:
+    device: str
+    free_bytes: int | None = None
+    total_bytes: int | None = None
+
+
 class ReconstructionBackend(ABC):
     """Interface that keeps backend tensors and conventions out of TwinForge core."""
 
@@ -22,6 +29,10 @@ class ReconstructionBackend(ABC):
 
     def close(self) -> None:
         """Release backend resources after a run when applicable."""
+
+    def memory_info(self) -> DeviceMemory:
+        """Report actual execution device and memory after preparation, if available."""
+        return DeviceMemory("unknown")
 
     @abstractmethod
     def reconstruct(

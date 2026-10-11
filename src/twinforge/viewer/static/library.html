@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0c1015"><title>Scenes — TwinForge</title>
+  <link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/library.css">
+  <script type="module" src="/library.js"></script>
+</head>
+<body data-application="library">
+<a class="skip-link" href="#scene-list">Skip to scenes</a>
+<div class="library-shell">
+  <aside class="library-sidebar" aria-label="Application navigation">
+    <a class="brand" href="/" aria-label="TwinForge home"><span class="brand-mark" aria-hidden="true">TF</span>TwinForge</a>
+    <p class="sidebar-caption">YOUR WORKSPACE</p>
+    <nav class="library-nav" aria-label="Main">
+      <button id="nav-scenes" aria-current="page"><span class="nav-icon" aria-hidden="true">▦</span>Scenes<span id="nav-scene-count" class="nav-count">0</span></button>
+      <button id="show-activity"><span class="nav-icon" aria-hidden="true">↗</span>Activity</button>
+      <button id="nav-imports"><span class="nav-icon" aria-hidden="true">↓</span>Import &amp; restore</button>
+      <button id="nav-settings"><span class="nav-icon" aria-hidden="true">⚙</span>Setup &amp; storage</button>
+    </nav>
+    <div class="sidebar-bottom"><span class="connection-dot" aria-hidden="true"></span><div><strong>On your computer</strong><p>Private by default. No cloud upload.</p></div></div>
+  </aside>
+  <div class="library-body">
+    <header class="library-topbar"><div><span class="breadcrumb-root">Workspace</span><span class="breadcrumb-divider" aria-hidden="true">/</span><span id="page-label">Scenes</span></div><span class="app-caption">VIDEO → SPACE</span></header>
+    <main class="library-main">
+      <div class="page-heading"><div><p class="eyebrow">Your spatial library</p><h1 id="page-title">Your scenes<span class="accent-period">.</span></h1><p id="page-description">From a video to a space you can explore. Open a scene to get started.</p></div><button id="add-video" class="primary"><span aria-hidden="true">＋</span> Add video</button></div>
+      <p id="library-status" class="library-feedback" role="status" aria-live="polite"></p>
+      <section id="page-scenes" aria-label="Scene library">
+        <section id="video-panel" class="utility-panel upload-panel" hidden aria-labelledby="video-heading">
+          <div class="panel-title"><div><p class="eyebrow">01 / Add your footage</p><h2 id="video-heading">Create a new scene</h2></div><button id="cancel-video" type="button" class="quiet" aria-label="Close video upload">Close</button></div>
+          <p>Your original stays on this computer. Inspection checks the video; processing starts only when you choose it.</p>
+          <form id="video-form"><label class="file-zone" for="video-file"><span class="file-zone-symbol" aria-hidden="true">↥</span><strong>Choose your video</strong><span>MP4, MOV or MKV · original phone file recommended</span><input id="video-file" type="file" accept=".mp4,.mov,.mkv" required></label><p id="video-file-info">We check file size, content and whether the video can be decoded.</p><button id="inspect-video" class="primary" type="submit">Copy and inspect video <span aria-hidden="true">→</span></button></form>
+          <progress id="video-progress" hidden value="0" max="1" aria-label="Video transfer bytes"></progress>
+          <p id="video-status" class="panel-status" role="status" aria-live="polite"></p><button id="discard-video" type="button" hidden>Discard incomplete local copy</button>
+          <form id="video-review" hidden><div class="panel-title"><h3>Review before processing</h3><span class="tag">02 / Review</span></div><div class="review-columns"><div><img id="video-preview" alt="Oriented, color-correct video inspection still"><details><summary>Play source video</summary><video id="video-playback" controls muted preload="none" hidden></video><p id="video-playback-note"></p></details><p id="video-properties"></p></div><div><label for="video-name">Scene name</label><input id="video-name" required maxlength="500" autocomplete="off"><label for="video-profile">Processing profile</label><select id="video-profile"><option value="standard">Standard scene · up to 32 images</option><option value="quick_preview">Quick preview</option></select><p id="video-resources"></p><details><summary>Advanced processing options</summary><label for="video-device">Device</label><select id="video-device"><option value="">Profile default</option><option value="cpu">CPU</option><option value="cuda">CUDA</option><option value="auto">Automatic</option></select><p>Standard keeps up to 32 useful images without automatic budget reduction or OOM retries. Quick preview may reduce views; fewer views can omit coverage.</p></details><div class="buttons"><button type="submit">Save review</button><button id="start-processing" class="primary" type="button" disabled>Start processing</button></div><p id="start-processing-note">Check processing setup before starting.</p></div></div></form>
+        </section>
+        <div class="library-overview"><div><span id="scene-count">0</span><span>Scenes</span></div><div><span id="ready-count">0</span><span>Ready to explore</span></div><div><span id="processing-count">0</span><span>In progress</span></div><p>Observed geometry.<br><strong>Not invented space.</strong></p></div>
+        <section class="library-filters" aria-label="Filter scenes"><label class="search-field" for="search-scenes"><span class="sr-only">Search scenes</span><span aria-hidden="true">⌕</span><input id="search-scenes" type="search" placeholder="Search your scenes…"></label><label for="status-scenes"><span class="sr-only">Status</span><select id="status-scenes"><option value="all">All active scenes</option><option value="ready">Ready to view</option><option value="ready_to_start">Ready to start</option><option value="queued">Queued</option><option value="running">Running</option><option value="validating_output">Validating output</option><option value="cancelling">Cancelling</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option><option value="interrupted">Interrupted</option><option value="source_unavailable">Source unavailable</option><option value="archived">Archived scenes</option></select></label><label for="sort-scenes"><span class="sr-only">Sort scenes</span><select id="sort-scenes"><option value="recent">Recently updated</option><option value="name">Name, A–Z</option></select></label><button id="refresh-scenes" class="quiet" aria-label="Refresh scenes">↻ Refresh</button></section>
+        <div id="scene-list" class="scene-grid" tabindex="-1"></div>
+        <p class="archive-note">Your original geometry stays unchanged. Known measurements can set scale, not certify shape accuracy.</p>
+      </section>
+      <section id="page-imports" hidden aria-label="Import and restore">
+        <div class="import-grid"><section class="utility-panel"><span class="panel-symbol" aria-hidden="true">⇣</span><h2>Restore a saved package</h2><p>Bring back a scene with its photos, observations and saved reports. No original video or model setup required.</p><form id="package-form"><label for="package-file">Complete TwinForge package</label><input id="package-file" type="file" accept=".zip" required><button class="primary" type="submit">Restore scene package</button></form></section><section class="utility-panel"><span class="panel-symbol" aria-hidden="true">⌁</span><h2>Link an existing reconstruction</h2><p>Keep a saved reconstruction in its original location and open it here. Linked originals stay read-only.</p><button id="show-import" type="button">Find existing scenes <span aria-hidden="true">→</span></button><p class="field-help">Only folders explicitly enabled when the application starts can be searched.</p></section></div>
+        <section id="import-panel" class="utility-panel" hidden aria-labelledby="import-heading"><h2 id="import-heading">Link an existing scene</h2><form id="import-form"><label for="import-choice">Available scene</label><select id="import-choice" required></select><label for="import-name">Scene name</label><input id="import-name" maxlength="500" required autocomplete="off"><details><summary>Optional verified pixel mapping</summary><label for="mapping-choice">Pixel mapping</label><select id="mapping-choice"><option value="">Start without a historical mapping</option></select><p>Only mappings with verified source and proof hashes are copied. Historical measurements are not imported.</p></details><div class="buttons"><button class="primary" type="submit">Link selected scene</button><button id="cancel-import" type="button">Cancel</button></div></form><p id="import-note" role="status"></p></section>
+      </section>
+      <section id="page-settings" hidden aria-label="Setup and local storage"><div class="settings-grid">
+        <section id="setup-panel" class="utility-panel" aria-labelledby="setup-heading"><div class="panel-title"><h2 id="setup-heading">Processing environment</h2><span class="tag">Local</span></div><p>Setup is needed to process new videos, not to open saved scenes.</p><p id="setup-status" class="panel-status" role="status" aria-live="polite">Checking the local processing environment…</p><div class="buttons"><button id="prepare-model" type="button" disabled>Prepare model</button><button id="refresh-setup" type="button">Check setup</button></div><p id="setup-size"></p></section>
+        <section class="utility-panel" aria-labelledby="storage-heading"><h2 id="storage-heading">Storage on this computer</h2><p id="storage-info">Loading storage information…</p><p>Archive hides a scene without deleting files. Original videos, saved scenes and downloads remain on disk. Permanent scene deletion is not available.</p></section>
+      </div><section class="utility-panel" aria-labelledby="transfers-heading"><h2 id="transfers-heading">Recover interrupted transfers</h2><p>Finish inspecting a copied video or discard only its incomplete copy. Successful scenes and your original file are not deleted.</p><p id="transfer-recovery-status" role="status" aria-live="polite"></p><div id="incomplete-transfers" aria-live="polite"></div><div class="buttons"><button id="refresh-transfers" type="button">Refresh transfers</button><button id="more-transfers" type="button" hidden>More transfer receipts</button></div></section></section>
+      <section id="activity-panel" hidden aria-labelledby="activity-heading"><div class="activity-heading"><div><h2 id="activity-heading">Processing history</h2><p>Leave this tab whenever you like. Keep the application running while it works.</p></div><button id="close-activity" class="quiet">Back to scenes</button></div><div id="activity-list" aria-live="polite"></div></section>
+    </main>
+    <footer class="library-footer"><span>TWINFORGE / SPATIAL RECONSTRUCTION</span><span>Built from observations, with uncertainty preserved.</span></footer>
+  </div>
+</div>
+</body>
+</html>

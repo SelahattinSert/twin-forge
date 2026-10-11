@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0c1015">
+  <title>TwinForge · Measurement workspace</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="importmap">{"imports":{"three":"/vendor/three.module.min.js"}}</script>
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#inspector">Skip to workspace controls</a>
+  <header class="app-header">
+    <a class="brand" href="/" aria-label="TwinForge workspace"><span class="brand-mark" aria-hidden="true">TF</span>TwinForge<span class="brand-divider" aria-hidden="true">/</span><span class="workspace-name">Workspace</span></a>
+    <div class="scene-identity"><a id="scenes-breadcrumb" class="back-link" href="/" hidden>← Back to scenes</a><span id="scene-name">Opening scene…</span><span id="active-version" hidden>Source scene</span></div>
+  </header>
+  <main>
+    <div class="stage">
+      <div class="stage-header"><div><p class="eyebrow">Spatial workspace</p><h1>Explore your space.</h1></div><span class="stage-badge">Observed point cloud</span></div>
+      <section id="viewport" aria-label="Interactive 3D point cloud" aria-describedby="viewport-help">
+        <div id="loading" role="status">Opening saved scene…</div>
+        <div id="view-label">All source frames</div>
+        <div class="viewport-toolbar"><button id="fit">Fit scene</button><button id="all">All frames</button><button id="capture-view">Screenshot</button></div>
+        <p id="focus-status" class="focus-status" role="status" aria-live="polite"></p>
+        <div id="hover-marker" class="hover-marker" hidden aria-hidden="true"></div>
+        <div id="hover-preview" class="hover-preview" hidden role="group" aria-label="Source view preview">
+          <div class="hover-heading"><span id="hover-kind" class="eyebrow">Camera view</span><button id="hover-close" class="hover-close" aria-label="Close source preview">×</button></div>
+          <p id="hover-title" class="hover-title"></p><p id="hover-detail" class="hover-detail"></p>
+          <button id="hover-look" class="hover-photo" aria-label="Look from this source view" disabled><img id="hover-image" alt="Source view preview" hidden><span id="hover-photo-fallback">Source photo unavailable</span><span id="hover-action" class="hover-action">Look from view <span aria-hidden="true">↗</span></span></button>
+          <p id="hover-note" class="hover-note">Original source photo · estimated camera pose</p>
+        </div>
+        <div class="navigation" id="viewport-help">Drag to orbit <span>·</span> Right drag to pan <span>·</span> Scroll to zoom <span>·</span> Double-click a point to focus</div>
+      </section>
+      <details id="source-views" class="timeline-panel">
+        <summary><span>Source views <span id="timeline-count" class="timeline-count"></span></span><span class="timeline-disclosure"><span class="timeline-show">Show</span><span class="timeline-hide">Hide</span><i aria-hidden="true"></i></span></summary>
+        <div class="timeline-body">
+        <div class="timeline-heading"><p id="timeline-status" role="status" aria-live="polite">Loading saved views…</p><div class="buttons"><button id="timeline-previous" aria-label="Previous source view" disabled>←</button><button id="timeline-next" aria-label="Next source view" disabled>→</button><button id="timeline-look" disabled>Look from view</button></div></div>
+        <div id="camera-timeline" class="camera-timeline" role="group" aria-label="Source photographs in time order"></div>
+        </div>
+      </details>
+      <div class="stage-footer"><span class="status-dot" aria-hidden="true"></span><p>Approximate geometry. A known length sets scale; it does not verify shape accuracy.</p><span class="offline-note">Runs locally</span></div>
+    </div>
+    <aside id="inspector" aria-label="Scene workspace controls" tabindex="-1">
+      <div class="inspector-heading"><p class="eyebrow">Scene tools</p><h2>Inspect. Measure. Understand.</h2><p>Explore first. Measurements and scale are optional.</p></div>
+      <nav class="steps" aria-label="Workspace steps">
+        <button id="step-inspect" aria-controls="panel-inspect" aria-pressed="true"><span class="step-number">01</span>Inspect</button>
+        <button id="step-measure" aria-controls="panel-measure" aria-pressed="false"><span class="step-number">02</span>Measure</button>
+        <button id="step-calibrate" aria-controls="panel-calibrate" aria-pressed="false"><span class="step-number">03 <span class="optional">Optional</span></span>Calibrate</button>
+      </nav>
+      <div class="copy-control"><label for="scene-variant">Scene copy</label><select id="scene-variant"><option value="source">Source scene</option><option value="derived" disabled>Uniform calibrated copy</option></select><p id="copy-status" role="status" aria-live="polite">Source geometry · ready for inspection</p></div>
+
+      <section id="panel-inspect" aria-labelledby="step-inspect" class="step-panel">
+        <div class="section-heading"><span class="section-index">01</span><div><h3>Understand the scene</h3><p>Explore points and their source views.</p></div></div>
+        <dl id="scene-status"></dl>
+        <div class="view-options"><label for="point-size">Point size <output id="point-size-value">2</output></label><input id="point-size" type="range" min="1" max="8" value="2" step="0.5"><label class="check"><input id="show-path" type="checkbox" checked> Estimated camera path</label><div class="path-legend"><span><i class="path-start" aria-hidden="true"></i>Start</span><span><i class="path-end" aria-hidden="true"></i>End</span></div><p id="path-status" class="field-help">Loading saved camera positions…</p><label class="check"><input id="show-cameras" type="checkbox" checked> Camera positions &amp; viewing directions</label></div>
+        <details class="exploration-tools"><summary>Saved viewpoints</summary><p>Save an angle and its clip settings for this scene copy. Stored only in this browser at this application address, not in exported packages.</p><label for="saved-view-name">View name</label><input id="saved-view-name" maxlength="80" placeholder="For example: entrance overview"><button id="save-view" class="full-width">Save current view</button><label for="saved-views">Saved views</label><select id="saved-views"><option value="">No saved views yet</option></select><div class="buttons"><button id="open-saved-view" disabled>Open view</button><button id="rename-saved-view" disabled>Rename</button><button id="delete-saved-view" disabled>Remove view</button></div><p id="saved-view-status" role="status" aria-live="polite">Views are separate for each scene and copy.</p></details>
+        <details class="exploration-tools"><summary>Viewing clip box</summary><p>Reveal the inside by cropping the viewing volume. X/Y/Z are display axes, not measured room directions.</p><label class="check"><input id="clip-enabled" type="checkbox"> Enable cutaway</label><div class="clip-axes">
+          <fieldset><legend>X range</legend><label for="clip-x-min">Start <output id="clip-x-min-value">0%</output></label><input id="clip-x-min" type="range" min="0" max="99" step="1" value="0" disabled><label for="clip-x-max">End <output id="clip-x-max-value">100%</output></label><input id="clip-x-max" type="range" min="1" max="100" step="1" value="100" disabled></fieldset>
+          <fieldset><legend>Y range</legend><label for="clip-y-min">Start <output id="clip-y-min-value">0%</output></label><input id="clip-y-min" type="range" min="0" max="99" step="1" value="0" disabled><label for="clip-y-max">End <output id="clip-y-max-value">100%</output></label><input id="clip-y-max" type="range" min="1" max="100" step="1" value="100" disabled></fieldset>
+          <fieldset><legend>Z range</legend><label for="clip-z-min">Start <output id="clip-z-min-value">0%</output></label><input id="clip-z-min" type="range" min="0" max="99" step="1" value="0" disabled><label for="clip-z-max">End <output id="clip-z-max-value">100%</output></label><input id="clip-z-max" type="range" min="1" max="100" step="1" value="100" disabled></fieldset>
+        </div><button id="clip-reset" class="full-width">Reset cutaway · show full volume</button><p id="clip-status" role="status" aria-live="polite">Full viewing volume. No clip box is active.</p></details>
+        <details><summary>Point provenance &amp; pixel diagnostics</summary><p id="point-details">Click a point to inspect its original PLY index and source frame.</p><p id="pixel-note"></p><p>Z-up is a display convention; gravity has not been measured. Stored XYZ is unchanged.</p></details>
+        <details><summary>Manual visibility</summary><p>Hide distracting regions without changing their geometry.</p><button id="hide-frame" disabled>Hide selected source view</button><label for="roi-bounds">Model ROI: left, top, right, bottom</label><input id="roi-bounds" placeholder="10, 20, 40, 60"><div class="buttons"><button id="hide-roi" disabled>Hide model ROI</button><button id="reset-visibility">Show hidden points</button></div><p id="visibility-note" role="status" aria-live="polite">Manually hidden points have not been corrected.</p></details>
+        <details><summary>Saved artifact &amp; performance</summary><p id="artifact-hash" class="mono"></p><p id="timing"></p></details>
+      </section>
+
+      <section id="panel-measure" aria-labelledby="step-measure" class="step-panel" hidden>
+        <div class="section-heading"><span class="section-index">02</span><div><h3>Measure a reference</h3><p>Any visible segment can be a reference.</p></div></div>
+        <div class="reference-heading"><span id="reference-status" class="state-label" aria-live="polite">New measurement</span><button id="new-reference" class="quiet">Add measurement</button></div>
+        <input id="reference-id" type="hidden">
+        <label for="measurement-name">Measurement name</label><input id="measurement-name" maxlength="500" autocomplete="off" aria-describedby="reference-help">
+        <p id="reference-help" class="field-help">Rename freely. Choose a photo, select A/B, review, then add an observation.</p>
+        <label for="quantity">Quantity</label><select id="quantity"><option value="segment" selected>Segment</option><option value="width">Width</option><option value="height">Height</option></select>
+        <p class="instruction">Choose endpoints A and B, then repeat the same physical endpoints in the same order in another source view.</p>
+        <div class="buttons"><button id="pick-3d">Pick in 3D</button><button id="pick-image" disabled>Select A/B in photo</button></div>
+        <p id="endpoint-status" class="interaction-status" role="status" aria-live="polite">No endpoints selected. Choose a picking method to begin.</p>
+        <label class="check"><input id="correspondence-reviewed" type="checkbox"> I identified the same physical endpoints</label>
+        <div class="buttons"><button id="save-observation" class="primary" disabled>Add observation</button><button id="clear-picks">Clear picks</button></div>
+        <p id="measurement-summary" class="evidence-summary" aria-live="polite">Select two points on a source photo.</p>
+        <details><summary>Technical details</summary><pre id="measurement-evidence">No examined reference. Insufficient evidence.</pre></details>
+        <section id="observation-library" aria-label="Saved observations"><h4>Source observations</h4><p>Replay each photograph. Repeated selections in one photo do not add independent views.</p><div id="observation-list"></div></section>
+        <section id="correction-panel" hidden aria-label="Observation correction"><p id="correction-status" role="status"></p><label for="correction-reason">Why are you correcting this observation?</label><input id="correction-reason" maxlength="1000"><p>The prior revision remains in history. Existing calibrated exports keep their frozen observations.</p></section>
+        <details><summary>Correction history</summary><div id="observation-history">No corrections.</div></details>
+        <label for="color-mode">Point color</label><select id="color-mode"><option value="rgb">Original RGB</option><option value="evidence">Measurement evidence</option></select><p class="field-help">Evidence colors mark examined endpoints only. Unexamined regions stay gray. Raw confidence is not an accuracy score.</p>
+        <section id="saved-scene-section" class="library-section" aria-labelledby="saved-scene-title"><h4 id="saved-scene-title">Saved in this scene</h4><p>References belong to this loaded scene workspace.</p><label for="saved-measurements">Reopen saved reference</label><select id="saved-measurements"><option value="">No saved references yet</option></select></section>
+        <section id="archive-section" class="library-section" aria-labelledby="archive-title"><h4 id="archive-title">Exported source archive <span class="tag">Read-only</span></h4><p>Frozen source observations are separate from this scene's editable references.</p><label for="archived-measurements">Inspect archived reference</label><select id="archived-measurements"><option value="">No exported archive</option></select><details><summary>Archive provenance &amp; frozen reports</summary><pre id="archive-status"></pre></details></section>
+      </section>
+
+      <section id="panel-calibrate" aria-labelledby="step-calibrate" class="step-panel" hidden>
+        <div class="section-heading"><span class="section-index">03</span><div><h3>Set a known scale <span class="tag">Optional</span></h3><p>Use one qualified source reference.</p></div></div>
+        <p class="instruction">Enter the physical length you measured for the active reference. A uniform scale applies to the whole scene.</p>
+        <p id="calibration-reference" class="evidence-summary">No active reference</p>
+        <div class="length-fields"><div><label for="physical-length">Physical length</label><input id="physical-length" type="number" min="0" step="any" placeholder="Enter measured length" aria-describedby="calibration-eligibility"></div><div><label for="physical-unit">Unit</label><select id="physical-unit"><option value="m">Meters</option><option value="cm">Centimeters</option></select></div></div>
+        <p id="calibration-eligibility" class="interaction-status" role="status" aria-live="polite">Open a qualified saved reference in Measure first.</p>
+        <button id="calibrate" class="primary full-width" disabled>Save uniform calibrated copy</button>
+        <p class="notice">Scale does not certify or repair shape accuracy. Raw source viewing remains available without calibration.</p>
+        <p id="calibration-summary" class="evidence-summary" aria-live="polite">No scale has been set. You can inspect and measure the source scene.</p>
+        <details open><summary>Technical details · calibration &amp; independent checks</summary><pre id="calibration-report" aria-live="polite">No calibration saved. You can inspect and measure without setting scale.</pre></details>
+      </section>
+
+      <section class="source-panel" aria-labelledby="source-title"><div class="source-heading"><div><p class="eyebrow">Source evidence</p><h3 id="source-title">Camera &amp; image</h3></div><span class="tag">Original view</span></div><label for="frame-select">Frame and timestamp</label><select id="frame-select"><option value="">Choose a source frame</option></select><div class="buttons"><button id="camera-view" disabled>Look from camera</button><button id="frame-points" disabled>Full frame points</button></div><p id="frame-details">Choose a camera in the list or click its frustum.</p><p id="image-selection-reason" role="status">Choose a source frame to select image endpoints.</p><div id="source-photo" class="annotated-photo"><img id="source-image" alt="Selected source frame" hidden><svg id="source-overlay" aria-hidden="true"></svg></div><a id="image-link" target="_blank" rel="noopener">Enlarge original photo</a><details><summary>Image resolution &amp; pixel mapping</summary><p id="image-note">Images retain their saved resolution. Model pixels may have a different resolution.</p></details></section>
+      <details class="version-drawer"><summary>Versions &amp; downloads</summary><section id="version-actions" hidden aria-label="Saved versions and downloads"></section></details>
+    </aside>
+  </main>
+  <dialog id="snapshot-dialog" aria-labelledby="snapshot-heading" aria-describedby="snapshot-description">
+    <div class="editor-heading"><h2 id="snapshot-heading">Capture this view</h2><button id="snapshot-cancel">Close</button></div>
+    <p id="snapshot-description">Download a PNG of the current 3D view with a context footer. Notes describe this image only; they do not create or modify measurements.</p>
+    <label for="snapshot-title">Title</label><input id="snapshot-title" maxlength="80" value="TwinForge scene view">
+    <label for="snapshot-note">Annotation (optional)</label><textarea id="snapshot-note" maxlength="500" rows="3" placeholder="Describe what this view shows"></textarea>
+    <p id="snapshot-status" role="status" aria-live="polite"></p><div class="buttons"><button id="snapshot-download" class="primary">Download annotated PNG</button></div>
+  </dialog>
+  <dialog id="image-editor" aria-labelledby="editor-title" aria-describedby="editor-instruction">
+    <div class="editor-heading"><h2 id="editor-title">Select A and B</h2><button id="editor-cancel">Cancel</button></div>
+    <p id="editor-instruction" role="status" aria-live="polite">Select the start point (A).</p>
+    <div class="editor-tools"><button id="editor-zoom-out" aria-label="Zoom out">−</button><output id="editor-zoom-value">1×</output><button id="editor-zoom-in" aria-label="Zoom in">+</button><button id="editor-fit">Fit image</button><label class="check"><input id="editor-pan" type="checkbox"> Pan image (Alt + drag also pans)</label><button id="editor-a" aria-pressed="true">Select A · start</button><button id="editor-b" aria-pressed="false">Select B · end</button><button id="editor-undo">Undo</button><button id="editor-clear">Clear selection</button></div>
+    <div class="editor-photos"><div id="editor-surface" tabindex="0" role="group" aria-label="Source photo endpoint editor" aria-describedby="editor-instruction"><img id="editor-image" draggable="false" alt="Source photo"><svg id="editor-overlay" aria-hidden="true"></svg></div><section id="editor-previous" hidden><h3>Previous observation — match these physical points</h3><div id="editor-previous-photo"></div><a id="editor-previous-link" target="_blank" rel="noopener">Enlarge previous photo</a></section></div>
+    <div class="editor-actions"><p>Confirmation reviews a draft. Use Add observation to save it.</p><button id="editor-confirm" class="primary" disabled>Confirm selection</button></div>
+  </dialog>
+</body>
+</html>

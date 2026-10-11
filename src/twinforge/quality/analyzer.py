@@ -24,9 +24,7 @@ def analyze_quality(
         temporal_coverage_seconds = max(
             0.0, selection.selected_end_seconds - selection.selected_start_seconds
         )
-        temporal_coverage_fraction = min(
-            1.0, temporal_coverage_seconds / video.duration_seconds
-        )
+        temporal_coverage_fraction = min(1.0, temporal_coverage_seconds / video.duration_seconds)
     warnings: list[dict[str, str]] = []
     if selected_count < 3:
         warnings.append(
@@ -120,6 +118,13 @@ def analyze_quality(
     else:
         reconstructed_views = 0
     return {
+        "schema_version": "0.1",
+        "scope": "pipeline_and_input_health",
+        "geometry_validation": {
+            "status": "not_evaluated",
+            "metric_accuracy": None,
+            "note": "Input health and valid output tensors do not prove cross-view consistency or physical distance accuracy.",
+        },
         "status": "complete" if len(result.points.xyz) else "incomplete",
         "candidate_frame_count": selection.candidate_count,
         "selected_keyframe_count": selected_count,

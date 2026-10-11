@@ -25,9 +25,7 @@ def write_point_glb(path: Path, cloud: PointCloud) -> None:
     if not len(positions):
         raise ExportError("Cannot create a GLB preview: no points are marked valid.")
     colors = np.asarray(
-        cloud.rgb[selected]
-        if cloud.rgb is not None
-        else np.full_like(positions, 190),
+        cloud.rgb[selected] if cloud.rgb is not None else np.full_like(positions, 190),
         dtype=np.uint8,
     )
     position_bytes, color_bytes = positions.tobytes(), colors.tobytes()
