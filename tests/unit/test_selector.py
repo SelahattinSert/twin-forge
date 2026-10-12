@@ -18,7 +18,7 @@ def test_selector_rejects_blur_and_keeps_provenance(tmp_path):
             image = cv2.GaussianBlur(image, (31, 31), 10)
         path = tmp_path / f"candidate_{index}.jpg"
         assert cv2.imwrite(str(path), image)
-        candidates.append(CandidateFrame(index * 30, float(index), path, image))
+        candidates.append(CandidateFrame(index * 30, float(index), path, 320, 240))
     selector = KeyframeSelector(
         KeyframeConfig(
             minimum_separation_seconds=0.5,
@@ -31,7 +31,9 @@ def test_selector_rejects_blur_and_keeps_provenance(tmp_path):
     )
     selected = selector.select(candidates, tmp_path / "selected")
     assert selected
-    assert selector.stats.rejected_blur >= 0
+    assert selector.stats.rejected_blur >= 1
+    assert 90 not in {frame.source_frame_index for frame in selected}
+    assert all(not hasattr(candidate, "image") for candidate in candidates)
     assert all(frame.image_path.endswith(".jpg") for frame in selected)
     assert all(frame.width == 320 and frame.height == 240 for frame in selected)
 
@@ -43,7 +45,7 @@ def test_maximum_keyframes_preserves_the_full_candidate_timeline(tmp_path):
         image = rng.integers(0, 256, (160, 200, 3), dtype=np.uint8)
         path = tmp_path / f"timeline_{index:02d}.jpg"
         assert cv2.imwrite(str(path), image)
-        candidates.append(CandidateFrame(index * 30, float(index), path, image))
+        candidates.append(CandidateFrame(index * 30, float(index), path, 200, 160))
 
     selector = KeyframeSelector(
         KeyframeConfig(

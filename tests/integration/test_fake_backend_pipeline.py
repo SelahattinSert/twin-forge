@@ -26,6 +26,7 @@ from twinforge.core.types import (
 from twinforge.exceptions import ExportError
 from twinforge.ingest.video import CandidateFrame, VideoIngestor
 from twinforge.reconstruction.orchestrator import ReconstructionOrchestrator
+from twinforge.reconstruction.progress import ProgressEvent
 
 
 class FakeBackend(ReconstructionBackend):
@@ -51,7 +52,13 @@ class FakeBackend(ReconstructionBackend):
             backend="fake",
             backend_version="test",
             checkpoint=None,
-            depth_maps=[DepthMap(frames[0].frame_id, frames[0].timestamp_seconds, np.ones((2, 2), dtype=np.float32))],
+            depth_maps=[
+                DepthMap(
+                    frames[0].frame_id,
+                    frames[0].timestamp_seconds,
+                    np.ones((2, 2), dtype=np.float32),
+                )
+            ],
         )
 
 
@@ -93,7 +100,7 @@ def test_fake_backend_produces_traceable_run_artifacts(tmp_path, monkeypatch):
         image = np.roll(base, index * 12, axis=1)
         path = candidate_dir / f"candidate_{index}.jpg"
         assert cv2.imwrite(str(path), image)
-        candidates.append(CandidateFrame(index * 30, float(index), path, image))
+        candidates.append(CandidateFrame(index * 30, float(index), path, 320, 240))
     monkeypatch.setattr(VideoIngestor, "inspect", lambda _self, _path: metadata)
     monkeypatch.setattr(VideoIngestor, "decode_candidates", lambda *_args: candidates)
     config = TwinForgeConfig(
@@ -140,3 +147,67 @@ def test_fake_backend_produces_traceable_run_artifacts(tmp_path, monkeypatch):
     keyframes = json.loads((result_dir / "keyframes.json").read_text())
     assert "source_frame_index_note" in keyframes
     assert all(frame["image_path"].startswith("frames/") for frame in keyframes["frames"])
+    # The optional callback/scratch contract preserves standalone numerical artifacts.
+    events = []
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    traced = ReconstructionOrchestrator(FakeBackend(), config).run(
+        video_path,
+        output_root=tmp_path / "traced",
+        scratch_root=scratch,
+        on_progress=events.append,
+    )
+    assert (traced / "pointcloud.ply").read_bytes() == (result_dir / "pointcloud.ply").read_bytes()
+    assert json.loads((traced / "cameras.json").read_text()) == json.loads(
+        (result_dir / "cameras.json").read_text()
+    )
+    with (
+        np.load(traced / "depthmaps.npz") as traced_depth,
+        np.load(result_dir / "depthmaps.npz") as original_depth,
+    ):
+        for key in original_depth.files:
+            np.testing.assert_array_equal(traced_depth[key], original_depth[key])
+    assert all(isinstance(event, ProgressEvent) for event in events)
+    assert [event.sequence for event in events] == list(range(1, len(events) + 1))
+    assert {event.stage for event in events} == {
+        "inspecting",
+        "selecting_images",
+        "loading_model",
+        "reconstructing",
+        "exporting",
+    }
+    assert not list(scratch.iterdir())
+
+
+@pytest.mark.parametrize("stage", ["inspecting", "selecting_images"])
+def test_early_engine_failures_emit_typed_failure_before_run_metadata(tmp_path, monkeypatch, stage):
+    metadata = VideoMetadata(
+        path=str(tmp_path / "input.mp4"),
+        container="mp4",
+        codec="h264",
+        width=32,
+        height=32,
+        fps=1.0,
+        duration_seconds=1.0,
+        rotation_degrees=0,
+        frame_count=1,
+        display_width=32,
+        display_height=32,
+    )
+
+    def fail(*args):
+        raise ValueError("Synthetic early failure")
+
+    monkeypatch.setattr(
+        VideoIngestor, "inspect", fail if stage == "inspecting" else lambda *_: metadata
+    )
+    monkeypatch.setattr(VideoIngestor, "decode_candidates", fail)
+    events = []
+    config = TwinForgeConfig(output=OutputConfig(root=tmp_path / "output"))
+    with pytest.raises(ValueError, match="early failure"):
+        ReconstructionOrchestrator(FakeBackend(), config).run(
+            tmp_path / "input.mp4", on_progress=events.append
+        )
+    assert events[-1].stage == stage and events[-1].message_code == "failed"
+    assert events[-1].details["failure_type"] == "ValueError"
+    assert not (tmp_path / "output/input/run.json").exists()

@@ -1,4 +1,4 @@
-"""Resolution-normalized sharpness and exposure metrics."""
+"""Bounded spatial-scale sharpness and native-resolution exposure metrics."""
 
 from __future__ import annotations
 
@@ -6,9 +6,22 @@ import cv2
 import numpy as np
 
 
+def analysis_image(image: np.ndarray) -> np.ndarray:
+    """Aspect-preserving quality image, longest edge at most 512; never upscale."""
+    height, width = image.shape[:2]
+    factor = min(1.0, 512 / max(width, height))
+    if factor == 1.0:
+        return image
+    return cv2.resize(
+        image,
+        (max(1, round(width * factor)), max(1, round(height * factor))),
+        interpolation=cv2.INTER_AREA,
+    )
+
+
 def measure_sharpness(image: np.ndarray) -> float:
-    """Laplacian variance normalized to an 8-bit intensity scale."""
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    """Laplacian variance on <=512 analysis pixels, divided by 255 squared."""
+    gray = cv2.cvtColor(analysis_image(image), cv2.COLOR_BGR2GRAY)
     return float(cv2.Laplacian(gray, cv2.CV_64F).var() / (255.0**2))
 
 

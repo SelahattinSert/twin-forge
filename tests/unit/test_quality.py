@@ -1,6 +1,26 @@
 from __future__ import annotations
 
+import cv2
 import numpy as np
+
+from twinforge.keyframes.quality import analysis_image, measure_sharpness
+
+
+def test_sharpness_uses_same_analysis_scale_and_rejects_severe_blur():
+    rng = np.random.default_rng(19)
+    scene = rng.integers(25, 230, (288, 512, 3), dtype=np.uint8)
+    large = cv2.resize(scene, (2048, 1152), interpolation=cv2.INTER_NEAREST)
+    assert abs(measure_sharpness(scene) - measure_sharpness(large)) < 0.00001
+    blurred = cv2.GaussianBlur(large, (0, 0), 32)
+    assert measure_sharpness(large) > 0.0015
+    assert measure_sharpness(blurred) < 0.0015
+
+
+def test_analysis_image_preserves_portrait_aspect_and_does_not_upscale():
+    small = np.zeros((30, 20, 3), dtype=np.uint8)
+    assert analysis_image(small) is small
+    assert analysis_image(np.zeros((2048, 1152, 3), dtype=np.uint8)).shape == (512, 288, 3)
+
 
 from twinforge.core.types import (
     Camera,
@@ -42,6 +62,8 @@ def test_quality_report_warns_when_backend_confidence_is_unavailable():
 
     warning_codes = {warning["code"] for warning in report["warnings"]}
     assert "BACKEND_CONFIDENCE_UNAVAILABLE" in warning_codes
+    assert report["scope"] == "pipeline_and_input_health"
+    assert report["geometry_validation"]["status"] == "not_evaluated"
 
 
 def test_quality_report_warns_when_selected_views_cover_only_a_short_video_segment():

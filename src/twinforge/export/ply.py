@@ -17,6 +17,7 @@ def write_ply(path: Path, cloud: PointCloud) -> None:
     has_confidence = cloud.confidence is not None
     has_source = cloud.source_frame_id is not None
     has_validity = cloud.valid_mask is not None
+    has_pixels = cloud.source_pixel_index is not None
     properties = ["property float x", "property float y", "property float z"]
     dtype_fields: list[tuple] = [("x", "<f4"), ("y", "<f4"), ("z", "<f4")]
     if has_rgb:
@@ -31,6 +32,9 @@ def write_ply(path: Path, cloud: PointCloud) -> None:
     if has_validity:
         properties.append("property uchar valid")
         dtype_fields.append(("valid", "u1"))
+    if has_pixels:
+        properties.append("property uint source_pixel_index")
+        dtype_fields.append(("source_pixel_index", "<u4"))
     header = "\n".join(
         [
             "ply",
@@ -57,6 +61,8 @@ def write_ply(path: Path, cloud: PointCloud) -> None:
                 record["source_frame_id"] = cloud.source_frame_id
             if has_validity:
                 record["valid"] = np.asarray(cloud.valid_mask, dtype=np.uint8)
+            if has_pixels:
+                record["source_pixel_index"] = cloud.source_pixel_index
             stream.write(record.tobytes())
     except OSError as exc:
         raise ExportError(f"Could not write point cloud {path}: {exc}") from exc

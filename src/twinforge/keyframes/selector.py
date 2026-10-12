@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import cv2
@@ -12,7 +12,7 @@ import numpy as np
 
 from twinforge.config import KeyframeConfig
 from twinforge.core.types import FrameObservation
-from twinforge.exceptions import NoUsableFramesError
+from twinforge.exceptions import NoUsableFramesError, VideoDecodeError
 from twinforge.ingest.video import CandidateFrame
 from twinforge.keyframes.quality import (
     hamming_distance,
@@ -22,6 +22,13 @@ from twinforge.keyframes.quality import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def analysis_image_shape(width: int, height: int) -> tuple[int, int]:
+    factor = min(1.0, 512 / max(width, height))
+    return max(1, round(width * factor)), max(1, round(height * factor))
+
+
 type ScoredCandidate = tuple[
     CandidateFrame, float, float, int, list[cv2.KeyPoint], np.ndarray | None
 ]
@@ -60,7 +67,11 @@ class KeyframeSelector:
         self.stats = SelectionStats(candidate_count=len(candidates))
         scored: list[ScoredCandidate] = []
         for candidate in candidates:
-            image = candidate.image
+            image = cv2.imread(str(candidate.image_path), cv2.IMREAD_COLOR)
+            if image is None:
+                raise VideoDecodeError(
+                    f"Selected candidate could not be read: {candidate.image_path.name}"
+                )
             sharpness, exposure = measure_sharpness(image), measure_exposure(image)
             if sharpness < self.config.minimum_sharpness:
                 self.stats.rejected_blur += 1
@@ -73,6 +84,7 @@ class KeyframeSelector:
             scored.append(
                 (candidate, sharpness, exposure, perceptual_hash(image), keypoints, descriptors)
             )
+            del image, gray
         if not scored:
             raise NoUsableFramesError(
                 "All sampled frames were rejected for blur or exposure. Try a clearer video."
@@ -97,7 +109,12 @@ class KeyframeSelector:
                     self.stats.rejected_duplicate += 1
                     continue
                 overlap, novelty = self._visual_change(
-                    matcher, keypoints, descriptors, previous[4], previous[5], image.shape[:2]
+                    matcher,
+                    keypoints,
+                    descriptors,
+                    previous[4],
+                    previous[5],
+                    (candidate.height, candidate.width),
                 )
                 if (
                     overlap < self.config.minimum_feature_overlap
@@ -105,7 +122,7 @@ class KeyframeSelector:
                 ):
                     self.stats.rejected_overlap += 1
                     continue
-                # Very low overlap makes the transition hard to relate; require a visual bridge candidate.
+                # High overlap with tiny displacement contributes little new geometry.
                 if (
                     overlap > self.config.maximum_feature_overlap
                     and novelty < self.config.minimum_novelty * 2
@@ -137,7 +154,7 @@ class KeyframeSelector:
                     continue
                 chosen.append((*item, 0.0, None))
                 existing.add(candidate.timestamp_seconds)
-                if len(chosen) >= min(self.config.minimum_keyframes, self.config.maximum_keyframes):
+                if len(chosen) >= self.config.minimum_keyframes:
                     break
             chosen.sort(key=lambda entry: entry[0].timestamp_seconds)
         if not chosen:
@@ -145,7 +162,10 @@ class KeyframeSelector:
                 "No usable keyframes were selected from the decoded candidates."
             )
 
-        if len(chosen) > self.config.maximum_keyframes:
+        if (
+            self.config.maximum_keyframes is not None
+            and len(chosen) > self.config.maximum_keyframes
+        ):
             chosen = self._spread_over_timeline(chosen, self.config.maximum_keyframes)
         chosen = self._recompute_transitions(chosen)
 
@@ -155,19 +175,20 @@ class KeyframeSelector:
             candidate, sharpness, exposure, _phash, _points, _desc, novelty, overlap = entry
             destination = output_dir / f"frame_{frame_id:04d}.jpg"
             shutil.copyfile(candidate.image_path, destination)
-            height, width = candidate.image.shape[:2]
             observations.append(
                 FrameObservation(
                     frame_id=frame_id,
                     source_frame_index=candidate.source_frame_index,
                     timestamp_seconds=candidate.timestamp_seconds,
                     image_path=str(destination),
-                    width=width,
-                    height=height,
+                    width=candidate.width,
+                    height=candidate.height,
                     sharpness=sharpness,
                     exposure=exposure,
                     novelty=novelty,
                     feature_overlap=overlap,
+                    analysis_width=analysis_image_shape(candidate.width, candidate.height)[0],
+                    analysis_height=analysis_image_shape(candidate.width, candidate.height)[1],
                 )
             )
         self.stats.selected_count = len(observations)
@@ -193,9 +214,7 @@ class KeyframeSelector:
             available.remove(selected_index)
         return [chosen[index] for index in sorted(selected_indices)]
 
-    def _recompute_transitions(
-        self, chosen: list[SelectedCandidate]
-    ) -> list[SelectedCandidate]:
+    def _recompute_transitions(self, chosen: list[SelectedCandidate]) -> list[SelectedCandidate]:
         """Make novelty/overlap metadata describe adjacent final keyframes."""
         matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         recomputed: list[SelectedCandidate] = []
@@ -211,12 +230,57 @@ class KeyframeSelector:
                 entry[5],
                 previous[4],
                 previous[5],
-                entry[0].image.shape[:2],
+                (entry[0].height, entry[0].width),
             )
             recomputed.append((*entry[:6], novelty, overlap))
             if overlap < self.config.minimum_feature_overlap:
                 self.stats.selected_low_overlap_transition_count += 1
         return recomputed
+
+    def reduce(self, frames: list[FrameObservation], limit: int) -> list[FrameObservation]:
+        """Reduce final views across time, retaining IDs and recomputing adjacency evidence."""
+        if limit < 1:
+            raise ValueError("frame limit must be positive")
+        if len(frames) <= limit:
+            return frames
+        timestamps = [frame.timestamp_seconds for frame in frames]
+        available = set(range(len(frames)))
+        indices = []
+        for target in np.linspace(timestamps[0], timestamps[-1], limit):
+            index = min(available, key=lambda i: (abs(timestamps[i] - target), i))
+            indices.append(index)
+            available.remove(index)
+        matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        previous_points, previous_descriptors = [], None
+        result = []
+        self.stats.selected_low_overlap_transition_count = 0
+        for index in sorted(indices):
+            frame = frames[index]
+            image = cv2.imread(frame.image_path, cv2.IMREAD_GRAYSCALE)
+            if image is None:
+                raise VideoDecodeError(f"Keyframe could not be read: {Path(frame.image_path).name}")
+            points, descriptors = cv2.ORB_create(nfeatures=1200).detectAndCompute(image, None)
+            del image
+            overlap, novelty = (
+                (None, 1.0)
+                if not result
+                else self._visual_change(
+                    matcher,
+                    points,
+                    descriptors,
+                    previous_points,
+                    previous_descriptors,
+                    (frame.height, frame.width),
+                )
+            )
+            result.append(replace(frame, feature_overlap=overlap, novelty=novelty))
+            if overlap is not None and overlap < self.config.minimum_feature_overlap:
+                self.stats.selected_low_overlap_transition_count += 1
+            previous_points, previous_descriptors = points, descriptors
+        self.stats.selected_count = len(result)
+        self.stats.selected_start_seconds = result[0].timestamp_seconds
+        self.stats.selected_end_seconds = result[-1].timestamp_seconds
+        return result
 
     @staticmethod
     def _visual_change(
